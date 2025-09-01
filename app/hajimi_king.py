@@ -209,7 +209,8 @@ def validate_gemini_key(api_key: str) -> Union[bool, str]:
         proxy_config = Config.get_random_proxy()
         
         client_options = {
-            "api_endpoint": "generativelanguage.googleapis.com"
+            # "api_endpoint": "generativelanguage.googleapis.com"
+            "api_endpoint": "https://api-proxy.me/gemini"
         }
         
         # 如果有代理配置，添加到client_options中
