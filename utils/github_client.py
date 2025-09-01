@@ -10,7 +10,8 @@ from common.config import Config
 
 
 class GitHubClient:
-    GITHUB_API_URL = "https://api.github.com/search/code"
+    # GITHUB_API_URL = "https://api.github.com/search/code"
+    GITHUB_API_URL = "https://free.5201914.xyz/github/search/code"
 
     def __init__(self, tokens: List[str]):
         self.tokens = [token.strip() for token in tokens if token.strip()]
