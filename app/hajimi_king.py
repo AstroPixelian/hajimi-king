@@ -205,26 +205,42 @@ def validate_gemini_key(api_key: str) -> Union[bool, str]:
     try:
         time.sleep(random.uniform(0.5, 1.5))
 
-        # 获取随机代理配置
-        proxy_config = Config.get_random_proxy()
-        
-        client_options = {
-            # "api_endpoint": "generativelanguage.googleapis.com"
-            "api_endpoint": "https://api-proxy.me/gemini"
-        }
-        
-        # 如果有代理配置，添加到client_options中
-        if proxy_config:
-            os.environ['grpc_proxy'] = proxy_config.get('http')
+        def call_gemini_with_custom_base_url(api_key, model, prompt, base_url="https://api-proxy.me/gemini"):
+            import requests
 
-        genai.configure(
-            api_key=api_key,
-            client_options=client_options,
-        )
+            url = f"{base_url}/v1beta/models/{model}:generateContent"
 
-        model = genai.GenerativeModel(Config.HAJIMI_CHECK_MODEL)
-        response = model.generate_content("hi")
-        return "ok"
+            headers = {
+                "Content-Type": "application/json",
+                "x-goog-api-key": api_key
+            }
+
+            data = {
+                "contents": [
+                    {
+                        "parts": [
+                            {
+                                "text": prompt
+                            }
+                        ]
+                    }
+                ]
+            }
+
+            response = requests.post(url, headers=headers, json=data)
+            return response.json()
+
+        model_name = Config.HAJIMI_CHECK_MODEL
+
+        response = call_gemini_with_custom_base_url(api_key, model_name, "Hello, how are you?")
+
+        if response.get('code',200) != 200:
+            return response.get('message', "Unknown error")
+
+        if response.get('modelVersion')==model_name:
+            return "ok"
+
+        return "Unknown error"
     except (google_exceptions.PermissionDenied, google_exceptions.Unauthenticated) as e:
         return "not_authorized_key"
     except google_exceptions.TooManyRequests as e:
