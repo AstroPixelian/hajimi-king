@@ -31,8 +31,8 @@ class SyncUtils:
         self.gpt_load_sync_enabled = Config.parse_bool(Config.GPT_LOAD_SYNC_ENABLED)
         self.gpt_load_enabled = bool(self.gpt_load_url and self.gpt_load_auth and self.gpt_load_group_names and self.gpt_load_sync_enabled)
 
-        # 创建线程池用于异步执行
-        self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="SyncUtils")
+        # 延迟初始化线程池
+        self.executor = None
         self.saving_checkpoint = False
 
         # 周期性发送控制
@@ -55,8 +55,21 @@ class SyncUtils:
         else:
             logger.info(f"🔗 GPT Load Balancer enabled - URL: {self.gpt_load_url}, Groups: {', '.join(self.gpt_load_group_names)}")
 
-        # 启动周期性发送线程
-        self._start_batch_sender()
+        # 延迟启动批量发送任务，仅在需要时才启动
+        if self.balancer_enabled or self.gpt_load_enabled:
+            self._ensure_executor()
+            self._start_batch_sender()
+
+    def _ensure_executor(self):
+        """确保线程池已初始化"""
+        if self.executor is None:
+            try:
+                self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="SyncUtils")
+                logger.info("✅ Thread pool initialized successfully")
+            except RuntimeError as e:
+                logger.error(f"❌ Failed to initialize thread pool: {e}")
+                logger.warning("🔄 Falling back to synchronous mode")
+                self.executor = None
 
     def add_keys_to_queue(self, keys: List[str]):
         """
@@ -415,13 +428,22 @@ class SyncUtils:
         if self.shutdown_flag:
             return
 
-        # 启动发送任务
-        self.executor.submit(self._batch_send_worker)
+        # 检查executor是否可用
+        if self.executor is None:
+            logger.warning("🚫 Thread pool not available, skipping batch send task")
+            return
 
-        # 设置下一次发送定时器
-        self.batch_timer = threading.Timer(self.batch_interval, self._start_batch_sender)
-        self.batch_timer.daemon = True
-        self.batch_timer.start()
+        try:
+            # 启动发送任务
+            self.executor.submit(self._batch_send_worker)
+
+            # 设置下一次发送定时器
+            self.batch_timer = threading.Timer(self.batch_interval, self._start_batch_sender)
+            self.batch_timer.daemon = True
+            self.batch_timer.start()
+        except RuntimeError as e:
+            logger.error(f"❌ Failed to submit batch send task: {e}")
+            logger.warning("🔄 Attempting synchronous fallback")
 
     def _batch_send_worker(self) -> None:
         """批量发送worker"""
@@ -476,7 +498,8 @@ class SyncUtils:
         if self.batch_timer:
             self.batch_timer.cancel()
 
-        self.executor.shutdown(wait=True)
+        if self.executor:
+            self.executor.shutdown(wait=True)
         logger.info("🔚 SyncUtils shutdown complete")
 
 
