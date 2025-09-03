@@ -1,4 +1,5 @@
 import base64
+import math
 import random
 import time
 from typing import Dict, List, Optional, Any
@@ -10,8 +11,7 @@ from common.config import Config
 
 
 class GitHubClient:
-    # GITHUB_API_URL = "https://api.github.com/search/code"
-    GITHUB_API_URL = "https://free.5201914.xyz/github/search/code"
+    GITHUB_API_URL = "https://forward.20351020.xyz/github/search/code"
 
     def __init__(self, tokens: List[str]):
         self.tokens = [token.strip() for token in tokens if token.strip()]
@@ -37,75 +37,36 @@ class GitHubClient:
         failed_requests = 0
         rate_limit_hits = 0
 
+        # 查询首页数据
+        first_page_result,_ = self.search_by_page(query, page=1, page_size=10)
+
+        if not first_page_result:
+            logger.error(f"❌ First page failed for query: {query[:50]}...")
+            return {}
+
+        # 随机选择需要抓取的页码
+        total_count = first_page_result.get('total_count',0)
+        page_size = 100
+        min_page_no = 1
+        max_page_no = math.ceil(total_count / page_size) if total_count > 0 else 1
+
+        # 生成随机页码列表（不重复且排序）
+        available_pages = list(range(min_page_no, max_page_no))
+        random_pages = sorted(random.sample(available_pages, min(len(available_pages), 10)))
+
+        # for page in random_pages:
+        # for page in [5,7,9,10,11,12,65,75,85,95]:
         for page in range(1, 11):
-            page_result = None
-            page_success = False
+            # 处理每个页码
+            page_result,(page_total_requests,page_failed_requests,page_rate_limit_hits) = self.search_by_page(query, page=page, page_size=page_size)
 
-            for attempt in range(1, max_retries + 1):
-                current_token = self._next_token()
+            # 更新统计
+            total_count += page_total_requests
+            failed_requests += page_failed_requests
+            rate_limit_hits += page_rate_limit_hits
 
-                headers = {
-                    "Accept": "application/vnd.github.v3+json",
-                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
-                }
 
-                if current_token:
-                    current_token = current_token.strip()
-                    headers["Authorization"] = f"token {current_token}"
-
-                params = {
-                    "q": query,
-                    "per_page": 100,
-                    "page": page
-                }
-
-                try:
-                    total_requests += 1
-                    # 获取随机proxy配置
-                    proxies = Config.get_random_proxy()
-                    if proxies:
-                        response = requests.get(self.GITHUB_API_URL, headers=headers, params=params, timeout=30, proxies=proxies)
-                    else:
-                        response = requests.get(self.GITHUB_API_URL, headers=headers, params=params, timeout=30)
-                    rate_limit_remaining = response.headers.get('X-RateLimit-Remaining')
-                    # 只在剩余次数很少时警告
-                    if rate_limit_remaining and int(rate_limit_remaining) < 3:
-                        logger.warning(f"⚠️ Rate limit low: {rate_limit_remaining} remaining, token: {current_token}")
-                    response.raise_for_status()
-                    page_result = response.json()
-                    page_success = True
-                    break
-
-                except requests.exceptions.HTTPError as e:
-                    status = e.response.status_code if e.response else None
-                    failed_requests += 1
-                    if status in (403, 429):
-                        rate_limit_hits += 1
-                        wait = min(2 ** attempt + random.uniform(0, 1), 60)
-                        # 只在严重情况下记录详细日志
-                        if attempt >= 3:
-                            logger.warning(f"❌ Rate limit hit, status:{status} (attempt {attempt}/{max_retries}) - waiting {wait:.1f}s")
-                        time.sleep(wait)
-                        continue
-                    else:
-                        # 其他HTTP错误，只在最后一次尝试时记录
-                        if attempt == max_retries:
-                            logger.error(f"❌ HTTP {status} error after {max_retries} attempts on page {page}")
-                        time.sleep(2 ** attempt)
-                        continue
-
-                except requests.exceptions.RequestException as e:
-                    failed_requests += 1
-                    wait = min(2 ** attempt, 30)
-
-                    # 只在最后一次尝试时记录网络错误
-                    if attempt == max_retries:
-                        logger.error(f"❌ Network error after {max_retries} attempts on page {page}: {type(e).__name__}")
-
-                    time.sleep(wait)
-                    continue
-
-            if not page_success or not page_result:
+            if not page_result:
                 if page == 1:
                     # 第一页失败是严重问题
                     logger.error(f"❌ First page failed for query: {query[:50]}...")
@@ -135,7 +96,8 @@ class GitHubClient:
 
             if page < 10:
                 sleep_time = random.uniform(0.5, 1.5)
-                logger.info(f"⏳ Processing query: 【{query}】,page {page},item count: {current_page_count},expected total: {expected_total},total count: {total_count},random sleep: {sleep_time:.1f}s")
+                logger.info(
+                    f"⏳ Processing query: 【{query}】,page {page},item count: {current_page_count},expected total: {expected_total},total count: {total_count},random sleep: {sleep_time:.1f}s")
                 time.sleep(sleep_time)
 
         final_count = len(all_items)
@@ -156,6 +118,85 @@ class GitHubClient:
         }
 
         return result
+
+    def search_by_page(self, query: str, page: int,page_size =100, max_retries: int = 5) -> tuple[Any, tuple[int , int , int ]] :
+        # 统计信息
+        total_requests = 0
+        failed_requests = 0
+        rate_limit_hits = 0
+
+        for attempt in range(1, max_retries + 1):
+            current_token = self._next_token()
+
+            headers = {
+                "Accept": "application/vnd.github.v3+json",
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+            }
+
+            if current_token:
+                current_token = current_token.strip()
+                headers["Authorization"] = f"token {current_token}"
+
+            params = {
+                "q": query,
+                "per_page": page_size,
+                "page": page
+            }
+
+            try:
+                total_requests += 1
+                # 获取随机proxy配置
+                proxies = Config.get_random_proxy()
+                logger.info(f"Using proxy: {proxies}")
+                if proxies:
+                    response = requests.get(self.GITHUB_API_URL, headers=headers, params=params, timeout=30,
+                                            proxies=proxies)
+                else:
+                    response = requests.get(self.GITHUB_API_URL, headers=headers, params=params, timeout=30)
+                logger.info(f"Requesting page {page} for query: {query[:50]}...{response}")
+                rate_limit_remaining = response.headers.get('X-RateLimit-Remaining')
+                # 只在剩余次数很少时警告
+                if rate_limit_remaining and int(rate_limit_remaining) < 3:
+                    logger.warning(f"⚠️ Rate limit low: {rate_limit_remaining} remaining, token: {current_token}")
+                response.raise_for_status()
+                page_result = response.json()
+                page_success = True
+
+                return page_result,(total_requests,failed_requests,rate_limit_hits)
+
+                break
+
+            except requests.exceptions.HTTPError as e:
+                status = e.response.status_code if e.response else None
+                failed_requests += 1
+                if status in (403, 429):
+                    rate_limit_hits += 1
+                    wait = min(2 ** attempt + random.uniform(0, 1), 60)
+                    # 只在严重情况下记录详细日志
+                    if attempt >= 3:
+                        logger.warning(
+                            f"❌ Rate limit hit, status:{status} (attempt {attempt}/{max_retries}) - waiting {wait:.1f}s")
+                    time.sleep(wait)
+                    continue
+                else:
+                    # 其他HTTP错误，只在最后一次尝试时记录
+                    if attempt == max_retries:
+                        logger.error(f"❌ HTTP {status} error after {max_retries} attempts on page {page}")
+                    time.sleep(2 ** attempt)
+                    continue
+
+            except requests.exceptions.RequestException as e:
+                failed_requests += 1
+                wait = min(2 ** attempt, 30)
+
+                # 只在最后一次尝试时记录网络错误
+                if attempt == max_retries:
+                    logger.error(f"❌ Network error after {max_retries} attempts on page {page}: {type(e).__name__}")
+
+                time.sleep(wait)
+                continue
+
+        return None,(total_requests,failed_requests,rate_limit_hits)
 
     def get_file_content(self, item: Dict[str, Any]) -> Optional[str]:
         repo_full_name = item["repository"]["full_name"]
