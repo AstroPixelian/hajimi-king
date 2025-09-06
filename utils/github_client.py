@@ -1,6 +1,7 @@
 import base64
 import math
 import random
+import re
 import time
 from typing import Dict, List, Optional, Any
 
@@ -50,12 +51,7 @@ class GitHubClient:
         min_page_no = 1
         max_page_no = math.ceil(total_count / page_size) if total_count > 0 else 1
 
-        # 生成随机页码列表（不重复且排序）
-        available_pages = list(range(min_page_no, max_page_no))
-        random_pages = sorted(random.sample(available_pages, min(len(available_pages), 10)))
-
-        # for page in random_pages:
-        # for page in [5,7,9,10,11,12,65,75,85,95]:
+        # 未超过1000条数据时，直接处理
         for page in range(1, 11):
             # 处理每个页码
             page_result,(page_total_requests,page_failed_requests,page_rate_limit_hits) = self.search_by_page(query, page=page, page_size=page_size)

@@ -266,6 +266,130 @@ def reset_skip_stats():
     global skip_stats
     skip_stats = {"time_filter": 0, "sha_duplicate": 0, "age_filter": 0, "doc_filter": 0}
 
+def process_query(query: str) -> dict[str, Any] | None:
+    reset_skip_stats()
+
+    query_count = 0
+    loop_processed_files = 0
+    query_valid_keys = 0
+    query_rate_limited_keys = 0
+
+    normalized_q = normalize_query(query)
+    if normalized_q in checkpoint.processed_queries:
+        logger.info(f"🔍 Skipping already processed query: [{query}]")
+        return None
+
+    res = github_utils.search_for_keys(query)
+    items = res.get("items", [])
+    total_count = res.get("total_count",0)
+
+    if res and "items" in res:
+        if items:
+            query_processed = 0
+
+            for item_index, item in enumerate(items, 1):
+
+                # 每20个item保存checkpoint并显示进度
+                if item_index % 20 == 0:
+                    logger.info(
+                        f"📈 Progress: {item_index}/{len(items)} | query: {query} | current valid: {query_valid_keys} | current rate limited: {query_rate_limited_keys} | keys valid: {query_valid_keys} | keys rate limited: {query_rate_limited_keys}")
+                    file_manager.save_checkpoint(checkpoint)
+                    file_manager.update_dynamic_filenames()
+
+                # 检查是否应该跳过此item
+                should_skip, skip_reason = should_skip_item(item, checkpoint)
+                if should_skip:
+                    logger.info(
+                        f"🚫 Skipping item,name: {item.get('path', '').lower()},index:{item_index} - reason: {skip_reason}")
+                    return None
+
+                # 处理单个item
+                valid_count, rate_limited_count = process_item(item)
+
+                query_valid_keys += valid_count
+                query_rate_limited_keys += rate_limited_count
+                query_processed += 1
+
+                # 记录已扫描的SHA
+                checkpoint.add_scanned_sha(item.get("sha"))
+
+                loop_processed_files += 1
+
+            # total_keys_found += query_valid_keys
+            # total_rate_limited_keys += query_rate_limited_keys
+
+            if query_processed > 0:
+                logger.info(
+                    f"✅ Query [{query}] complete - Processed: {query_processed}, Valid: +{query_valid_keys}, Rate limited: +{query_rate_limited_keys}")
+            else:
+                logger.info(f"⏭️ Query [{query}] complete - All items skipped")
+
+            print_skip_stats()
+        else:
+            logger.info(f"📭 Query [{query}] - No items found")
+    else:
+        logger.warning(f"❌ Query [{query}] failed")
+
+    checkpoint.add_processed_query(normalized_q)
+    query_count += 1
+
+    checkpoint.update_scan_time()
+    file_manager.save_checkpoint(checkpoint)
+    file_manager.update_dynamic_filenames()
+
+    if query_count % 5 == 0:
+        logger.info(f"⏸️ Processed {query_count} queries, taking a break...")
+        time.sleep(5)
+
+    logger.info(f"💤 Sleeping for 10 seconds...")
+    time.sleep(10)
+
+    # 超过1000条查询限制时，拆分子查询
+    if total_count > 10 * 1000 and "AIzaSy" in query:
+        logger.info(f"⚠️ Query too large: {query[:50]}..., splitting into multiple queries")
+
+        def _extract_first_keys_from_content(content: str) -> str:
+            keys = _extract_keys_from_content(content)
+            return keys[0] if keys else None
+
+        def _extract_keys_from_content(content: str) -> List[str]:
+            pattern = r'(AIzaSy[A-Za-z0-9\-_]{0,33})'
+            return re.findall(pattern, content)
+
+        def get_random_char(count=10) -> list[str]:
+            """
+            从 A-Za-z0-9\-_ 中随机取一个字符
+
+            Args:
+                count (int): 需要获取的字符数量，默认为10
+
+            Returns:
+                list[str]: 包含不重复随机字符的列表
+            """
+            char_set = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
+
+            # 使用random.sample一次性获取多个不重复的字符
+            return random.sample(char_set, count)
+
+        # 提取当前查询条件中的密钥
+        raw_key = _extract_first_keys_from_content(query)
+
+        for suffix in get_random_char(10):
+            new_key = raw_key + suffix
+            new_query = query.replace(raw_key, new_key)
+
+            sub_query_result = process_query(new_query)
+
+            if sub_query_result:
+                query_valid_keys += sub_query_result["query_valid_keys"]
+                query_rate_limited_keys += sub_query_result["query_rate_limited_keys"]
+
+        pass
+
+    return {
+        "query_valid_keys": query_valid_keys,
+        "query_rate_limited_keys": query_rate_limited_keys,
+    }
 
 def main():
     start_time = datetime.now()
@@ -319,85 +443,19 @@ def main():
     total_rate_limited_keys = 0
     loop_count = 0
 
+
     while True:
         try:
             loop_count += 1
             logger.info(f"🔄 Loop #{loop_count} - {datetime.now().strftime('%H:%M:%S')}")
 
-            query_count = 0
-            loop_processed_files = 0
-            reset_skip_stats()
+            for i, query in enumerate(search_queries, 1):
+                query_result=process_query(query)
 
-            for i, q in enumerate(search_queries, 1):
-                normalized_q = normalize_query(q)
-                if normalized_q in checkpoint.processed_queries:
-                    logger.info(f"🔍 Skipping already processed query: [{q}],index:#{i}")
-                    continue
+                total_keys_found += query_result["query_valid_keys"]
+                total_rate_limited_keys += query_result["query_rate_limited_keys"]
 
-                res = github_utils.search_for_keys(q)
-
-                if res and "items" in res:
-                    items = res["items"]
-                    if items:
-                        query_valid_keys = 0
-                        query_rate_limited_keys = 0
-                        query_processed = 0
-
-                        for item_index, item in enumerate(items, 1):
-
-                            # 每20个item保存checkpoint并显示进度
-                            if item_index % 20 == 0:
-                                logger.info(
-                                    f"📈 Progress: {item_index}/{len(items)} | query: {q} | current valid: {query_valid_keys} | current rate limited: {query_rate_limited_keys} | total valid: {total_keys_found} | total rate limited: {total_rate_limited_keys}")
-                                file_manager.save_checkpoint(checkpoint)
-                                file_manager.update_dynamic_filenames()
-
-                            # 检查是否应该跳过此item
-                            should_skip, skip_reason = should_skip_item(item, checkpoint)
-                            if should_skip:
-                                logger.info(f"🚫 Skipping item,name: {item.get('path','').lower()},index:{item_index} - reason: {skip_reason}")
-                                continue
-
-                            # 处理单个item
-                            valid_count, rate_limited_count = process_item(item)
-
-                            query_valid_keys += valid_count
-                            query_rate_limited_keys += rate_limited_count
-                            query_processed += 1
-
-                            # 记录已扫描的SHA
-                            checkpoint.add_scanned_sha(item.get("sha"))
-
-                            loop_processed_files += 1
-
-
-
-                        total_keys_found += query_valid_keys
-                        total_rate_limited_keys += query_rate_limited_keys
-
-                        if query_processed > 0:
-                            logger.info(f"✅ Query {i}/{len(search_queries)} complete - Processed: {query_processed}, Valid: +{query_valid_keys}, Rate limited: +{query_rate_limited_keys}")
-                        else:
-                            logger.info(f"⏭️ Query {i}/{len(search_queries)} complete - All items skipped")
-
-                        print_skip_stats()
-                    else:
-                        logger.info(f"📭 Query {i}/{len(search_queries)} - No items found")
-                else:
-                    logger.warning(f"❌ Query {i}/{len(search_queries)} failed")
-
-                checkpoint.add_processed_query(normalized_q)
-                query_count += 1
-
-                checkpoint.update_scan_time()
-                file_manager.save_checkpoint(checkpoint)
-                file_manager.update_dynamic_filenames()
-
-                if query_count % 5 == 0:
-                    logger.info(f"⏸️ Processed {query_count} queries, taking a break...")
-                    time.sleep(1)
-
-            logger.info(f"🏁 Loop #{loop_count} complete - Processed {loop_processed_files} files | Total valid: {total_keys_found} | Total rate limited: {total_rate_limited_keys}")
+            logger.info(f"🏁 Loop #{loop_count} complete - Processed files | Total valid: {total_keys_found} | Total rate limited: {total_rate_limited_keys}")
 
             logger.info(f"💤 Sleeping for 10 seconds...")
             time.sleep(10)
