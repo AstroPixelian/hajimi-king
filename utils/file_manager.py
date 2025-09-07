@@ -16,25 +16,25 @@ class Checkpoint:
     processed_queries: Set[str] = field(default_factory=set)
     wait_send_balancer: Set[str] = field(default_factory=set)
     wait_send_gpt_load: Set[str] = field(default_factory=set)
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典格式，但不包含scanned_shas（单独存储）"""
         return {
             "last_scan_time": self.last_scan_time,
             "processed_queries": list(self.processed_queries),
             "wait_send_balancer": list(self.wait_send_balancer),
-            "wait_send_gpt_load": list(self.wait_send_gpt_load)
+            "wait_send_gpt_load": list(self.wait_send_gpt_load),
         }
-    
+
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'Checkpoint':
+    def from_dict(cls, data: Dict[str, Any]) -> "Checkpoint":
         """从字典创建Checkpoint对象，scanned_shas需要单独加载"""
         return cls(
             last_scan_time=data.get("last_scan_time"),
             scanned_shas=set(),  # 将通过FileManager单独加载
             processed_queries=set(data.get("processed_queries", [])),
             wait_send_balancer=set(data.get("wait_send_balancer", [])),
-            wait_send_gpt_load=set(data.get("wait_send_gpt_load", []))
+            wait_send_gpt_load=set(data.get("wait_send_gpt_load", [])),
         )
 
     def add_scanned_sha(self, sha: str) -> None:
@@ -55,7 +55,7 @@ class FileManager:
     def __init__(self, data_dir: str):
         """
         初始化FileManager并完成所有必要的设置
-        
+
         Args:
             data_dir: 数据目录路径
         """
@@ -94,56 +94,66 @@ class FileManager:
 
         self._keys_valid_filename = os.path.join(
             self.data_dir,
-            f"{Config.VALID_KEY_PREFIX}{start_time.strftime('%Y%m%d')}.txt"
+            f"{Config.VALID_KEY_PREFIX}{start_time.strftime('%Y%m%d')}.txt",
         )
 
         self._rate_limited_filename = os.path.join(
             self.data_dir,
-            f"{Config.RATE_LIMITED_KEY_PREFIX}{start_time.strftime('%Y%m%d')}.txt"
+            f"{Config.RATE_LIMITED_KEY_PREFIX}{start_time.strftime('%Y%m%d')}.txt",
         )
 
         self._keys_send_filename = os.path.join(
             self.data_dir,
-            f"{Config.KEYS_SEND_PREFIX}{start_time.strftime('%Y%m%d')}.txt"
+            f"{Config.KEYS_SEND_PREFIX}{start_time.strftime('%Y%m%d')}.txt",
         )
         self._detail_log_filename = os.path.join(
             self.data_dir,
-            f"{ Config.VALID_KEY_DETAIL_PREFIX.rstrip('_')}{start_time.strftime('%Y%m%d')}.log"
+            f"{Config.VALID_KEY_DETAIL_PREFIX.rstrip('_')}{start_time.strftime('%Y%m%d')}.log",
         )
         self._rate_limited_detail_filename = os.path.join(
             self.data_dir,
-            f"{Config.RATE_LIMITED_KEY_DETAIL_PREFIX}{start_time.strftime('%Y%m%d')}.log"
+            f"{Config.RATE_LIMITED_KEY_DETAIL_PREFIX}{start_time.strftime('%Y%m%d')}.log",
         )
         self._keys_send_detail_filename = os.path.join(
             self.data_dir,
-            f"{Config.KEYS_SEND_DETAIL_PREFIX}{start_time.strftime('%Y%m%d')}.log"
+            f"{Config.KEYS_SEND_DETAIL_PREFIX}{start_time.strftime('%Y%m%d')}.log",
         )
 
         # 创建文件（如果不存在），先确保父目录存在
-        for filename in [self._detail_log_filename, self._keys_valid_filename, self._rate_limited_filename, self._rate_limited_detail_filename, self._keys_send_filename,
-                         self._keys_send_detail_filename]:
+        for filename in [
+            self._detail_log_filename,
+            self._keys_valid_filename,
+            self._rate_limited_filename,
+            self._rate_limited_detail_filename,
+            self._keys_send_filename,
+            self._keys_send_detail_filename,
+        ]:
             if not os.path.exists(filename):
                 # 确保父目录存在（类似 mkdir -p）
                 parent_dir = os.path.dirname(filename)
                 if parent_dir:
                     os.makedirs(parent_dir, exist_ok=True)
 
-                with open(filename, 'a', encoding='utf-8') as f:
+                with open(filename, "a", encoding="utf-8") as f:
                     f.write("")
 
         logger.info(f"Initialized keys valid filename: {self._keys_valid_filename}")
         logger.info(f"Initialized rate limited filename: {self._rate_limited_filename}")
         logger.info(f"Initialized keys send filename: {self._keys_send_filename}")
         logger.info(f"Initialized detail log filename: {self._detail_log_filename}")
-        logger.info(f"Initialized rate limited detail filename: {self._rate_limited_detail_filename}")
-        logger.info(f"Initialized keys send detail filename: {self._keys_send_detail_filename}")
+        logger.info(
+            f"Initialized rate limited detail filename: {self._rate_limited_detail_filename}"
+        )
+        logger.info(
+            f"Initialized keys send detail filename: {self._keys_send_detail_filename}"
+        )
 
         logger.info("✅ FileManager initialization complete")
 
     def check(self) -> bool:
         """
         检查FileManager是否正确初始化，所有必要文件是否就绪
-        
+
         Returns:
             bool: 检查是否通过
         """
@@ -152,7 +162,7 @@ class FileManager:
         errors = []
 
         # 检查搜索查询
-        if not hasattr(self, '_search_queries') or not self._search_queries:
+        if not hasattr(self, "_search_queries") or not self._search_queries:
             errors.append("Search queries not loaded or empty")
             logger.error("❌ Search queries: Not loaded or empty")
         else:
@@ -181,9 +191,13 @@ class FileManager:
                     data = json.load(f)
                     checkpoint = Checkpoint.from_dict(data)
             except Exception as e:
-                logger.warning(f"Cannot read {self.checkpoint_file}: {e}. Will create new checkpoint.")
+                logger.warning(
+                    f"Cannot read {self.checkpoint_file}: {e}. Will create new checkpoint."
+                )
         else:
-            logger.warning(f"{self.checkpoint_file} not found. Will create new checkpoint.")
+            logger.warning(
+                f"{self.checkpoint_file} not found. Will create new checkpoint."
+            )
             self.save_checkpoint(checkpoint)
 
         # 从单独文件加载scanned_shas
@@ -200,7 +214,7 @@ class FileManager:
                 with open(self.scanned_shas_file, "r", encoding="utf-8") as f:
                     for line in f:
                         line = line.strip()
-                        if line and not line.startswith('#'):
+                        if line and not line.startswith("#"):
                             scanned_shas.add(line)
             except Exception as e:
                 logger.error(f"Failed to read {self.scanned_shas_file}: {e}")
@@ -223,7 +237,7 @@ class FileManager:
             with open(full_path, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
-                    if line and not line.startswith('#'):
+                    if line and not line.startswith("#"):
                         queries.append(line)
         except Exception as e:
             logger.error(f"Failed to read {full_path}: {e}")
@@ -253,14 +267,20 @@ class FileManager:
             with open(self.scanned_shas_file, "w", encoding="utf-8") as f:
                 f.write("# 已扫描的文件SHA列表\n")
                 f.write("# 每行一个SHA，用于避免重复扫描\n")
-                f.write(f"# 最后更新时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(
+                    f"# 最后更新时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                )
                 f.write("\n")
                 for sha in sorted(scanned_shas):
                     f.write(f"{sha}\n")
         except Exception as e:
-            logger.error(f"Failed to save scanned SHAs to {self.scanned_shas_file}: {e}")
+            logger.error(
+                f"Failed to save scanned SHAs to {self.scanned_shas_file}: {e}"
+            )
 
-    def save_valid_keys(self, repo_name: str, file_path: str, file_url: str, valid_keys: List[str]) -> None:
+    def save_valid_keys(
+        self, repo_name: str, file_path: str, file_url: str, valid_keys: List[str]
+    ) -> None:
         """保存有效的API密钥"""
         if not valid_keys or not self._detail_log_filename:
             return
@@ -279,7 +299,13 @@ class FileManager:
                 for key in valid_keys:
                     f.write(f"{key}\n")
 
-    def save_rate_limited_keys(self, repo_name: str, file_path: str, file_url: str, rate_limited_keys: List[str]) -> None:
+    def save_rate_limited_keys(
+        self,
+        repo_name: str,
+        file_path: str,
+        file_url: str,
+        rate_limited_keys: List[str],
+    ) -> None:
         """保存被限流的API密钥"""
         if not rate_limited_keys:
             return
@@ -302,7 +328,7 @@ class FileManager:
     def save_keys_send_result(self, keys: List[str], send_result: dict) -> None:
         """
         保存发送到外部应用的结果
-        
+
         Args:
             keys: API keys列表
             send_result: 字典，key是密钥，value是发送结果状态
@@ -310,7 +336,7 @@ class FileManager:
         if not keys:
             return
 
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         # 保存详细信息到详细日志文件
         if self._keys_send_detail_filename:
@@ -346,66 +372,77 @@ class FileManager:
     def update_dynamic_filenames(self) -> None:
         """更新时间相关的文件名（例如每小时更新）"""
         current_time = datetime.now()
-        current_date_str = current_time.strftime('%Y%m%d')
-        current_hour_str = current_time.strftime('%H')
+        current_date_str = current_time.strftime("%Y%m%d")
+        current_hour_str = current_time.strftime("%H")
 
         # 更新keys_valid文件名
         if self._keys_valid_filename:
             basename = os.path.basename(self._keys_valid_filename)
-            if self._need_filename_update(basename, Config.VALID_KEY_PREFIX, current_date_str, current_hour_str):
+            if self._need_filename_update(
+                basename, Config.VALID_KEY_PREFIX, current_date_str, current_hour_str
+            ):
                 self._keys_valid_filename = os.path.join(
                     self.data_dir,
-                    f"{Config.VALID_KEY_PREFIX}{current_time.strftime('%Y%m%d')}.txt"
+                    f"{Config.VALID_KEY_PREFIX}{current_time.strftime('%Y%m%d')}.txt",
                 )
 
         # 更新rate_limited文件名
         if self._rate_limited_filename:
             basename = os.path.basename(self._rate_limited_filename)
-            if self._need_filename_update(basename, Config.RATE_LIMITED_KEY_PREFIX, current_date_str, current_hour_str):
+            if self._need_filename_update(
+                basename,
+                Config.RATE_LIMITED_KEY_PREFIX,
+                current_date_str,
+                current_hour_str,
+            ):
                 self._rate_limited_filename = os.path.join(
                     self.data_dir,
-                    f"{Config.RATE_LIMITED_KEY_PREFIX}{current_time.strftime('%Y%m%d')}.txt"
+                    f"{Config.RATE_LIMITED_KEY_PREFIX}{current_time.strftime('%Y%m%d')}.txt",
                 )
 
         # 更新keys_send文件名
         if self._keys_send_filename:
             basename = os.path.basename(self._keys_send_filename)
-            if self._need_filename_update(basename, Config.KEYS_SEND_PREFIX, current_date_str, current_hour_str):
+            if self._need_filename_update(
+                basename, Config.KEYS_SEND_PREFIX, current_date_str, current_hour_str
+            ):
                 self._keys_send_filename = os.path.join(
                     self.data_dir,
-                    f"{Config.KEYS_SEND_PREFIX}{current_time.strftime('%Y%m%d')}.txt"
+                    f"{Config.KEYS_SEND_PREFIX}{current_time.strftime('%Y%m%d')}.txt",
                 )
 
         # 更新detail_log文件名（按日期分割）
         if self._detail_log_filename:
             basename = os.path.basename(self._detail_log_filename)
-            detail_prefix = Config.VALID_KEY_DETAIL_PREFIX.rstrip('_')
-            if self._need_daily_filename_update(basename, detail_prefix, current_date_str):
+            detail_prefix = Config.VALID_KEY_DETAIL_PREFIX.rstrip("_")
+            if self._need_daily_filename_update(
+                basename, detail_prefix, current_date_str
+            ):
                 self._detail_log_filename = os.path.join(
-                    self.data_dir,
-                    f"{detail_prefix}{current_date_str}.log"
+                    self.data_dir, f"{detail_prefix}{current_date_str}.log"
                 )
 
         # 更新rate_limited_detail文件名（按日期分割）
         if self._rate_limited_detail_filename:
             basename = os.path.basename(self._rate_limited_detail_filename)
-            if self._need_daily_filename_update(basename, Config.RATE_LIMITED_KEY_DETAIL_PREFIX, current_date_str):
+            if self._need_daily_filename_update(
+                basename, Config.RATE_LIMITED_KEY_DETAIL_PREFIX, current_date_str
+            ):
                 self._rate_limited_detail_filename = os.path.join(
                     self.data_dir,
-                    f"{Config.RATE_LIMITED_KEY_DETAIL_PREFIX}{current_date_str}.log"
+                    f"{Config.RATE_LIMITED_KEY_DETAIL_PREFIX}{current_date_str}.log",
                 )
 
         # 更新keys_send_detail文件名（按日期分割）
         if self._keys_send_detail_filename:
             basename = os.path.basename(self._keys_send_detail_filename)
-            if self._need_daily_filename_update(basename, Config.KEYS_SEND_DETAIL_PREFIX, current_date_str):
+            if self._need_daily_filename_update(
+                basename, Config.KEYS_SEND_DETAIL_PREFIX, current_date_str
+            ):
                 self._keys_send_detail_filename = os.path.join(
                     self.data_dir,
-                    f"{Config.KEYS_SEND_DETAIL_PREFIX}{current_date_str}.log"
+                    f"{Config.KEYS_SEND_DETAIL_PREFIX}{current_date_str}.log",
                 )
-
-
-
 
     @property
     def detail_log_filename(self) -> Optional[str]:
@@ -442,7 +479,7 @@ class FileManager:
 
     def get_search_queries(self) -> List[str]:
         """获取搜索查询列表"""
-        return getattr(self, '_search_queries', [])
+        return getattr(self, "_search_queries", [])
 
     # ================================
     # 私有辅助方法
@@ -465,25 +502,30 @@ class FileManager:
         except Exception as e:
             logger.error(f"Failed to create default queries file {queries_file}: {e}")
 
-    def _need_filename_update(self, basename: str, prefix: str, current_date: str, current_hour: str) -> bool:
+    def _need_filename_update(
+        self, basename: str, prefix: str, current_date: str, current_hour: str
+    ) -> bool:
         """检查是否需要更新文件名"""
         try:
-            time_part = basename[len(prefix):].replace('.txt', '')
-            if '_' in time_part:
-                filename_date, filename_hour = time_part.split('_', 1)
+            time_part = basename[len(prefix) :].replace(".txt", "")
+            if "_" in time_part:
+                filename_date, filename_hour = time_part.split("_", 1)
                 return filename_date != current_date or filename_hour != current_hour
         except (IndexError, ValueError):
             pass
         return True
 
-    def _need_daily_filename_update(self, basename: str, prefix: str, current_date: str) -> bool:
+    def _need_daily_filename_update(
+        self, basename: str, prefix: str, current_date: str
+    ) -> bool:
         """检查是否需要更新按日期分割的文件名"""
         try:
-            time_part = basename[len(prefix):].replace('.log', '')
+            time_part = basename[len(prefix) :].replace(".log", "")
             return time_part != current_date
         except (IndexError, ValueError):
             pass
         return True
+
 
 file_manager = FileManager(Config.DATA_PATH)
 checkpoint = file_manager.load_checkpoint()

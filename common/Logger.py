@@ -1,6 +1,8 @@
 import logging
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s"
+)
 
 
 class Logger:
@@ -14,7 +16,16 @@ class Logger:
 
     @staticmethod
     def error(message):
-        logging.error("\033[0;31m" + "-" * 50 + '\n| ' + str(message) + "\033[0m" + "\n" + "└" + "-" * 80)
+        logging.error(
+            "\033[0;31m"
+            + "-" * 50
+            + "\n| "
+            + str(message)
+            + "\033[0m"
+            + "\n"
+            + "└"
+            + "-" * 80
+        )
 
     @staticmethod
     def debug(message):

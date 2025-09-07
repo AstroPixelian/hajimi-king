@@ -1,4 +1,3 @@
-import os
 import random
 import re
 import sys
@@ -7,12 +6,11 @@ import traceback
 from datetime import datetime, timedelta
 from typing import Dict, List, Union, Any
 
-import google.generativeai as genai
 from google.api_core import exceptions as google_exceptions
 
 from common.Logger import logger
 
-sys.path.append('../')
+sys.path.append("../")
 from common.config import Config
 from utils.github_client import GitHubClient
 from utils.file_manager import file_manager, Checkpoint, checkpoint
@@ -22,12 +20,7 @@ from utils.sync_utils import sync_utils
 github_utils = GitHubClient.create_instance(Config.GITHUB_TOKENS)
 
 # 统计信息
-skip_stats = {
-    "time_filter": 0,
-    "sha_duplicate": 0,
-    "age_filter": 0,
-    "doc_filter": 0
-}
+skip_stats = {"time_filter": 0, "sha_duplicate": 0, "age_filter": 0, "doc_filter": 0}
 
 
 def normalize_query(query: str) -> str:
@@ -39,16 +32,16 @@ def normalize_query(query: str) -> str:
         if query[i] == '"':
             end_quote = query.find('"', i + 1)
             if end_quote != -1:
-                parts.append(query[i:end_quote + 1])
+                parts.append(query[i : end_quote + 1])
                 i = end_quote + 1
             else:
                 parts.append(query[i])
                 i += 1
-        elif query[i] == ' ':
+        elif query[i] == " ":
             i += 1
         else:
             start = i
-            while i < len(query) and query[i] != ' ':
+            while i < len(query) and query[i] != " ":
                 i += 1
             parts.append(query[start:i])
 
@@ -61,11 +54,11 @@ def normalize_query(query: str) -> str:
     for part in parts:
         if part.startswith('"') and part.endswith('"'):
             quoted_strings.append(part)
-        elif part.startswith('language:'):
+        elif part.startswith("language:"):
             language_parts.append(part)
-        elif part.startswith('filename:'):
+        elif part.startswith("filename:"):
             filename_parts.append(part)
-        elif part.startswith('path:'):
+        elif part.startswith("path:"):
             path_parts.append(part)
         elif part.strip():
             other_parts.append(part)
@@ -81,14 +74,14 @@ def normalize_query(query: str) -> str:
 
 
 def extract_keys_from_content(content: str) -> List[str]:
-    pattern = r'(AIzaSy[A-Za-z0-9\-_]{33})'
+    pattern = r"(AIzaSy[A-Za-z0-9\-_]{33})"
     return re.findall(pattern, content)
 
 
 def should_skip_item(item: Dict[str, Any], checkpoint: Checkpoint) -> tuple[bool, str]:
     """
     检查是否应该跳过处理此item
-    
+
     Returns:
         tuple: (should_skip, reason)
     """
@@ -102,7 +95,7 @@ def should_skip_item(item: Dict[str, Any], checkpoint: Checkpoint) -> tuple[bool
                 if repo_pushed_dt <= last_scan_dt:
                     skip_stats["time_filter"] += 1
                     return True, "time_filter"
-        except Exception as e:
+        except Exception:
             pass
 
     # 检查SHA是否已扫描
@@ -130,7 +123,7 @@ def should_skip_item(item: Dict[str, Any], checkpoint: Checkpoint) -> tuple[bool
 def process_item(item: Dict[str, Any]) -> tuple:
     """
     处理单个GitHub搜索结果item
-    
+
     Returns:
         tuple: (valid_keys_count, rate_limited_keys_count)
     """
@@ -154,11 +147,11 @@ def process_item(item: Dict[str, Any]) -> tuple:
     for key in keys:
         context_index = content.find(key)
         if context_index != -1:
-            snippet = content[context_index:context_index + 45]
+            snippet = content[context_index : context_index + 45]
             if "..." in snippet or "YOUR_" in snippet.upper():
                 continue
         filtered_keys.append(key)
-    
+
     # 去重处理
     keys = list(set(filtered_keys))
 
@@ -195,7 +188,9 @@ def process_item(item: Dict[str, Any]) -> tuple:
             logger.error(f"📥 Error adding keys to sync queues: {e}")
 
     if rate_limited_keys:
-        file_manager.save_rate_limited_keys(repo_name, file_path, file_url, rate_limited_keys)
+        file_manager.save_rate_limited_keys(
+            repo_name, file_path, file_url, rate_limited_keys
+        )
         logger.info(f"💾 Saved {len(rate_limited_keys)} rate limited key(s)")
 
     return len(valid_keys), len(rate_limited_keys)
@@ -205,50 +200,49 @@ def validate_gemini_key(api_key: str) -> Union[bool, str]:
     try:
         time.sleep(random.uniform(0.5, 1.5))
 
-        def call_gemini_with_custom_base_url(api_key, model, prompt, base_url="https://api-proxy.me/gemini"):
+        def call_gemini_with_custom_base_url(
+            api_key, model, prompt, base_url="https://api-proxy.me/gemini"
+        ):
             import requests
 
             url = f"{base_url}/v1beta/models/{model}:generateContent"
 
-            headers = {
-                "Content-Type": "application/json",
-                "x-goog-api-key": api_key
-            }
+            headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
 
-            data = {
-                "contents": [
-                    {
-                        "parts": [
-                            {
-                                "text": prompt
-                            }
-                        ]
-                    }
-                ]
-            }
+            data = {"contents": [{"parts": [{"text": prompt}]}]}
 
             response = requests.post(url, headers=headers, json=data)
             return response.json()
 
         model_name = Config.HAJIMI_CHECK_MODEL
 
-        response = call_gemini_with_custom_base_url(api_key, model_name, "Hello, how are you?")
+        response = call_gemini_with_custom_base_url(
+            api_key, model_name, "Hello, how are you?"
+        )
 
-        if response.get('code',200) != 200:
-            return response.get('message', "Unknown error")
+        if response.get("code", 200) != 200:
+            return response.get("message", "Unknown error")
 
-        if response.get('modelVersion')==model_name:
+        if response.get("modelVersion") == model_name:
             return "ok"
 
         return "Unknown error"
-    except (google_exceptions.PermissionDenied, google_exceptions.Unauthenticated) as e:
+    except (google_exceptions.PermissionDenied, google_exceptions.Unauthenticated):
         return "not_authorized_key"
-    except google_exceptions.TooManyRequests as e:
+    except google_exceptions.TooManyRequests:
         return "rate_limited"
     except Exception as e:
-        if "429" in str(e) or "rate limit" in str(e).lower() or "quota" in str(e).lower():
+        if (
+            "429" in str(e)
+            or "rate limit" in str(e).lower()
+            or "quota" in str(e).lower()
+        ):
             return "rate_limited:429"
-        elif "403" in str(e) or "SERVICE_DISABLED" in str(e) or "API has not been used" in str(e):
+        elif (
+            "403" in str(e)
+            or "SERVICE_DISABLED" in str(e)
+            or "API has not been used" in str(e)
+        ):
             return "disabled"
         else:
             return f"error:{e.__class__.__name__}"
@@ -258,13 +252,21 @@ def print_skip_stats():
     """打印跳过统计信息"""
     total_skipped = sum(skip_stats.values())
     if total_skipped > 0:
-        logger.info(f"📊 Skipped {total_skipped} items - Time: {skip_stats['time_filter']}, Duplicate: {skip_stats['sha_duplicate']}, Age: {skip_stats['age_filter']}, Docs: {skip_stats['doc_filter']}")
+        logger.info(
+            f"📊 Skipped {total_skipped} items - Time: {skip_stats['time_filter']}, Duplicate: {skip_stats['sha_duplicate']}, Age: {skip_stats['age_filter']}, Docs: {skip_stats['doc_filter']}"
+        )
 
 
 def reset_skip_stats():
     """重置跳过统计"""
     global skip_stats
-    skip_stats = {"time_filter": 0, "sha_duplicate": 0, "age_filter": 0, "doc_filter": 0}
+    skip_stats = {
+        "time_filter": 0,
+        "sha_duplicate": 0,
+        "age_filter": 0,
+        "doc_filter": 0,
+    }
+
 
 def process_query(query: str) -> dict[str, Any] | None:
     reset_skip_stats()
@@ -281,18 +283,18 @@ def process_query(query: str) -> dict[str, Any] | None:
 
     res = github_utils.search_for_keys(query)
     items = res.get("items", [])
-    total_count = res.get("total_count",0)
+    total_count = res.get("total_count", 0)
 
     if res and "items" in res:
         if items:
             query_processed = 0
 
             for item_index, item in enumerate(items, 1):
-
                 # 每20个item保存checkpoint并显示进度
                 if item_index % 20 == 0:
                     logger.info(
-                        f"📈 Progress: {item_index}/{len(items)} | query: {query} | current valid: {query_valid_keys} | current rate limited: {query_rate_limited_keys} | keys valid: {query_valid_keys} | keys rate limited: {query_rate_limited_keys}")
+                        f"📈 Progress: {item_index}/{len(items)} | query: {query} | current valid: {query_valid_keys} | current rate limited: {query_rate_limited_keys} | keys valid: {query_valid_keys} | keys rate limited: {query_rate_limited_keys}"
+                    )
                     file_manager.save_checkpoint(checkpoint)
                     file_manager.update_dynamic_filenames()
 
@@ -300,7 +302,8 @@ def process_query(query: str) -> dict[str, Any] | None:
                 should_skip, skip_reason = should_skip_item(item, checkpoint)
                 if should_skip:
                     logger.info(
-                        f"🚫 Skipping item,name: {item.get('path', '').lower()},index:{item_index} - reason: {skip_reason}")
+                        f"🚫 Skipping item,name: {item.get('path', '').lower()},index:{item_index} - reason: {skip_reason}"
+                    )
                     return None
 
                 # 处理单个item
@@ -320,7 +323,8 @@ def process_query(query: str) -> dict[str, Any] | None:
 
             if query_processed > 0:
                 logger.info(
-                    f"✅ Query [{query}] complete - Processed: {query_processed}, Valid: +{query_valid_keys}, Rate limited: +{query_rate_limited_keys}")
+                    f"✅ Query [{query}] complete - Processed: {query_processed}, Valid: +{query_valid_keys}, Rate limited: +{query_rate_limited_keys}"
+                )
             else:
                 logger.info(f"⏭️ Query [{query}] complete - All items skipped")
 
@@ -341,19 +345,21 @@ def process_query(query: str) -> dict[str, Any] | None:
         logger.info(f"⏸️ Processed {query_count} queries, taking a break...")
         time.sleep(5)
 
-    logger.info(f"💤 Sleeping for 10 seconds...")
+    logger.info("💤 Sleeping for 10 seconds...")
     time.sleep(10)
 
     # 超过1000条查询限制时，拆分子查询
     if total_count > 10 * 1000 and "AIzaSy" in query:
-        logger.info(f"⚠️ Query too large: {query[:50]}..., splitting into multiple queries")
+        logger.info(
+            f"⚠️ Query too large: {query[:50]}..., splitting into multiple queries"
+        )
 
         def _extract_first_keys_from_content(content: str) -> str:
             keys = _extract_keys_from_content(content)
             return keys[0] if keys else None
 
         def _extract_keys_from_content(content: str) -> List[str]:
-            pattern = r'(AIzaSy[A-Za-z0-9\-_]{0,33})'
+            pattern = r"(AIzaSy[A-Za-z0-9\-_]{0,33})"
             return re.findall(pattern, content)
 
         def get_random_char(count=10) -> list[str]:
@@ -366,7 +372,9 @@ def process_query(query: str) -> dict[str, Any] | None:
             Returns:
                 list[str]: 包含不重复随机字符的列表
             """
-            char_set = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
+            char_set = (
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+            )
 
             # 使用random.sample一次性获取多个不重复的字符
             return random.sample(char_set, count)
@@ -391,6 +399,7 @@ def process_query(query: str) -> dict[str, Any] | None:
         "query_rate_limited_keys": query_rate_limited_keys,
     }
 
+
 def main():
     start_time = datetime.now()
 
@@ -412,11 +421,13 @@ def main():
     # 2.5. 显示SyncUtils状态和队列信息
     if sync_utils.balancer_enabled:
         logger.info("🔗 SyncUtils ready for async key syncing")
-        
+
     # 显示队列状态
     balancer_queue_count = len(checkpoint.wait_send_balancer)
     gpt_load_queue_count = len(checkpoint.wait_send_gpt_load)
-    logger.info(f"📊 Queue status - Balancer: {balancer_queue_count}, GPT Load: {gpt_load_queue_count}")
+    logger.info(
+        f"📊 Queue status - Balancer: {balancer_queue_count}, GPT Load: {gpt_load_queue_count}"
+    )
 
     # 3. 显示系统信息
     search_queries = file_manager.get_search_queries()
@@ -428,13 +439,12 @@ def main():
         logger.info(f"🌐 Proxy: {len(Config.PROXY_LIST)} proxies configured")
 
     if checkpoint.last_scan_time:
-        logger.info(f"💾 Checkpoint found - Incremental scan mode")
+        logger.info("💾 Checkpoint found - Incremental scan mode")
         logger.info(f"   Last scan: {checkpoint.last_scan_time}")
         logger.info(f"   Scanned files: {len(checkpoint.scanned_shas)}")
         logger.info(f"   Processed queries: {len(checkpoint.processed_queries)}")
     else:
-        logger.info(f"💾 No checkpoint - Full scan mode")
-
+        logger.info("💾 No checkpoint - Full scan mode")
 
     logger.info("✅ System ready - Starting king")
     logger.info("=" * 60)
@@ -443,29 +453,36 @@ def main():
     total_rate_limited_keys = 0
     loop_count = 0
 
-
     while True:
         try:
             loop_count += 1
-            logger.info(f"🔄 Loop #{loop_count} - {datetime.now().strftime('%H:%M:%S')}")
+            logger.info(
+                f"🔄 Loop #{loop_count} - {datetime.now().strftime('%H:%M:%S')}"
+            )
 
             for i, query in enumerate(search_queries, 1):
-                query_result=process_query(query)
+                query_result = process_query(query)
 
                 if query_result:
-                    total_keys_found += query_result.get("query_valid_keys",0)
-                    total_rate_limited_keys += query_result.get("query_rate_limited_keys",0)
+                    total_keys_found += query_result.get("query_valid_keys", 0)
+                    total_rate_limited_keys += query_result.get(
+                        "query_rate_limited_keys", 0
+                    )
 
-            logger.info(f"🏁 Loop #{loop_count} complete - Processed files | Total valid: {total_keys_found} | Total rate limited: {total_rate_limited_keys}")
+            logger.info(
+                f"🏁 Loop #{loop_count} complete - Processed files | Total valid: {total_keys_found} | Total rate limited: {total_rate_limited_keys}"
+            )
 
-            logger.info(f"💤 Sleeping for 10 seconds...")
+            logger.info("💤 Sleeping for 10 seconds...")
             time.sleep(10)
 
         except KeyboardInterrupt:
             logger.info("⛔ Interrupted by user")
             checkpoint.update_scan_time()
             file_manager.save_checkpoint(checkpoint)
-            logger.info(f"📊 Final stats - Valid keys: {total_keys_found}, Rate limited: {total_rate_limited_keys}")
+            logger.info(
+                f"📊 Final stats - Valid keys: {total_keys_found}, Rate limited: {total_rate_limited_keys}"
+            )
             logger.info("🔚 Shutting down sync utils...")
             sync_utils.shutdown()
             break
