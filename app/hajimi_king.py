@@ -78,7 +78,9 @@ def extract_keys_from_content(content: str) -> List[str]:
     return re.findall(pattern, content)
 
 
-def should_skip_item(item: Dict[str, Any], checkpoint: Checkpoint) -> tuple[bool, str]:
+def should_skip_item(
+    normalized_query: str, item: Dict[str, Any], checkpoint: Checkpoint
+) -> tuple[bool, str]:
     """
     检查是否应该跳过处理此item
 
@@ -93,8 +95,9 @@ def should_skip_item(item: Dict[str, Any], checkpoint: Checkpoint) -> tuple[bool
             if last_scan_dt.tzinfo is None:
                 last_scan_dt = last_scan_dt.replace(tzinfo=timezone.utc)
 
-            # 检查距离上次扫描时间是否超过1天
+            # 检查距离上次扫描时间是否超过1天，立即扫描
             if current_time - last_scan_dt > timedelta(days=1):
+                logger.info(f"🔍 Scanning from scratch due to long time since last scan.")
                 return False, ""
 
             repo_pushed_at = item["repository"].get("pushed_at")
@@ -105,6 +108,10 @@ def should_skip_item(item: Dict[str, Any], checkpoint: Checkpoint) -> tuple[bool
                     return True, "time_filter"
         except Exception:
             pass
+
+    if normalized_query in checkpoint.processed_queries:
+        logger.info(f"🔍 Skipping already processed query: [{normalized_query}]")
+        return True, "query_filter"
 
     # 检查SHA是否已扫描
     if item.get("sha") in checkpoint.scanned_shas:
@@ -285,9 +292,6 @@ def process_query(query: str) -> dict[str, Any] | None:
     query_rate_limited_keys = 0
 
     normalized_q = normalize_query(query)
-    if normalized_q in checkpoint.processed_queries:
-        logger.info(f"🔍 Skipping already processed query: [{query}]")
-        return None
 
     res = github_utils.search_for_keys(query)
     items = res.get("items", [])
@@ -307,7 +311,9 @@ def process_query(query: str) -> dict[str, Any] | None:
                     file_manager.update_dynamic_filenames()
 
                 # 检查是否应该跳过此item
-                should_skip, skip_reason = should_skip_item(item, checkpoint)
+                should_skip, skip_reason = should_skip_item(
+                    normalized_q, item, checkpoint
+                )
                 if should_skip:
                     logger.info(
                         f"🚫 Skipping item,name: {item.get('path', '').lower()},index:{item_index} - reason: {skip_reason}"
