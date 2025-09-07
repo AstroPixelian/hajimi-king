@@ -452,8 +452,9 @@ def main():
             for i, query in enumerate(search_queries, 1):
                 query_result=process_query(query)
 
-                total_keys_found += query_result["query_valid_keys"]
-                total_rate_limited_keys += query_result["query_rate_limited_keys"]
+                if query_result:
+                    total_keys_found += query_result.get("query_valid_keys",0)
+                    total_rate_limited_keys += query_result.get("query_rate_limited_keys",0)
 
             logger.info(f"🏁 Loop #{loop_count} complete - Processed files | Total valid: {total_keys_found} | Total rate limited: {total_rate_limited_keys}")
 
