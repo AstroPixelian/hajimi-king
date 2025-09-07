@@ -3,7 +3,7 @@ import re
 import sys
 import time
 import traceback
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Union, Any
 
 from google.api_core import exceptions as google_exceptions
@@ -88,7 +88,16 @@ def should_skip_item(item: Dict[str, Any], checkpoint: Checkpoint) -> tuple[bool
     # 检查增量扫描时间
     if checkpoint.last_scan_time:
         try:
+            current_time = datetime.now(timezone.utc)
             last_scan_dt = datetime.fromisoformat(checkpoint.last_scan_time)
+            if last_scan_dt.tzinfo is None:
+                last_scan_dt = last_scan_dt.replace(tzinfo=timezone.utc)
+
+            # 检查距离上次扫描时间是否超过1天
+            if current_time - last_scan_dt > timedelta(days=1):
+                skip_stats["time_filter"] += 1
+                return True, "time_filter"
+
             repo_pushed_at = item["repository"].get("pushed_at")
             if repo_pushed_at:
                 repo_pushed_dt = datetime.strptime(repo_pushed_at, "%Y-%m-%dT%H:%M:%SZ")
@@ -107,7 +116,7 @@ def should_skip_item(item: Dict[str, Any], checkpoint: Checkpoint) -> tuple[bool
     repo_pushed_at = item["repository"].get("pushed_at")
     if repo_pushed_at:
         repo_pushed_dt = datetime.strptime(repo_pushed_at, "%Y-%m-%dT%H:%M:%SZ")
-        if repo_pushed_dt < datetime.utcnow() - timedelta(days=Config.DATE_RANGE_DAYS):
+        if repo_pushed_dt < datetime.now() - timedelta(days=Config.DATE_RANGE_DAYS):
             skip_stats["age_filter"] += 1
             return True, "age_filter"
 
