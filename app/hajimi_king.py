@@ -95,8 +95,7 @@ def should_skip_item(item: Dict[str, Any], checkpoint: Checkpoint) -> tuple[bool
 
             # 检查距离上次扫描时间是否超过1天
             if current_time - last_scan_dt > timedelta(days=1):
-                skip_stats["time_filter"] += 1
-                return True, "time_filter"
+                return False, ""
 
             repo_pushed_at = item["repository"].get("pushed_at")
             if repo_pushed_at:
